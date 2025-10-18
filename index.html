@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Visual Shopping — MVP</title>
+<style>
+  :root{
+    --bg:#0f1116; --panel:#151922; --card:#1a1f2b; --fg:#e8ecf3; --muted:#97a1b3; --acc:#7bd88f;
+    --border:#222835; --shadow:0 12px 40px rgba(0,0,0,.25);
+    --gap:16px; --radius:16px; --radius-lg:22px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:linear-gradient(180deg,#0d0f14,#0b0e13);color:var(--fg);
+       font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  a{color:inherit}
+
+  .topbar{position:sticky;top:0;z-index:10;display:flex;gap:10px;align-items:center;
+          padding:12px clamp(12px,4vw,28px);background:linear-gradient(180deg,rgba(10,12,18,.95),rgba(10,12,18,.55));
+          border-bottom:1px solid var(--border);backdrop-filter:saturate(140%) blur(8px)}
+  .brand{font-size:15px;font-weight:700;letter-spacing:.3px;display:flex;align-items:center;gap:10px}
+  .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 6px rgba(123,216,143,.15)}
+  .actions{display:flex;gap:10px;margin-left:auto;flex-wrap:wrap}
+  .ctrl{background:var(--panel);border:1px solid var(--border);color:var(--fg);border-radius:12px;padding:8px 12px;cursor:pointer}
+  .ctrl:hover{border-color:#2b3344}
+  .ctrl.primary{background:linear-gradient(180deg,#212835,#1a202c);border-color:#2a3342}
+  .ctrl.danger{background:linear-gradient(180deg,#2a1c20,#23171a);border-color:#3a2630;color:#ffb3c0}
+  .ctrl:disabled{opacity:.5;cursor:not-allowed}
+  .ctrl.active{border-color:var(--acc);color:var(--acc)}
+
+  .searchbar{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);
+             padding:8px 12px;border-radius:12px;min-width:220px}
+  .searchbar input{all:unset;flex:1}
+
+  .grid-wrap{padding:22px clamp(12px,4vw,28px)}
+  .grid{column-gap:var(--gap)}
+  /* Responsive column sizing: increases columns as width grows */
+  @media (min-width:320px){ .grid{columns: 1} }
+  @media (min-width:520px){ .grid{columns: 2} }
+  @media (min-width:820px){ .grid{columns: 3} }
+  @media (min-width:1100px){ .grid{columns: 4} }
+  @media (min-width:1400px){ .grid{columns: 5} }
+
+  .card{display:inline-block; width:100%; margin:0 0 var(--gap); background:var(--card);
+        border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow);
+        break-inside:avoid; position:relative}
+  .card img{width:100%; display:block; background:#0b0d12}
+  .meta{padding:10px 12px; display:grid; gap:8px}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:8px}
+  .title{font-weight:600; line-height:1.3}
+  .price{font-weight:700}
+  .src{color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+
+  .badge{font-size:11px; padding:5px 8px; border-radius:999px; border:1px solid var(--border); background:var(--panel)}
+
+  .select-check{position:absolute; top:10px; left:10px; width:22px; height:22px}
+
+  .dev-row{display:flex;gap:8px;margin-top:6px}
+  .devbtn{border:1px solid var(--border);background:#111826;border-radius:10px;color:var(--muted);padding:6px 10px;cursor:pointer;font-size:12px}
+  .devbtn:hover{border-color:#2b3344;color:var(--fg)}
+  body.devmode .devbtn{color:var(--fg)}
+
+  /* Dialog / Modal */
+  dialog{border:none; padding:0; border-radius:var(--radius-lg); background:var(--panel); color:var(--fg);
+         border:1px solid var(--border); box-shadow:var(--shadow); width:min(880px,94vw)}
+  dialog::backdrop{background:rgba(0,0,0,.5)}
+  .dlg-head{display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border)}
+  .dlg-body{padding:16px; display:grid; gap:14px}
+  .grid2{display:grid; grid-template-columns:1.2fr .8fr; gap:16px}
+  .field{display:grid; gap:8px}
+  .field label{font-size:12px; color:var(--muted)}
+  .field input[type="text"], .field input[type="url"], .field input[type="number"], .field textarea{
+     all:unset; background:#0f141d; border:1px solid var(--border); border-radius:12px; padding:10px 12px}
+  .field textarea{min-height:72px}
+  .dropzone{border:1px dashed #344054; border-radius:12px; padding:12px; display:grid; gap:8px; place-items:center; text-align:center; background:#101521}
+  .dropzone.drag{border-color:var(--acc); box-shadow:0 0 0 3px rgba(123,216,143,.18) inset}
+  .dropzone img{max-width:100%;max-height:200px;object-fit:contain;border-radius:12px}
+  .dlg-foot{display:flex; justify-content:space-between; padding:14px 16px; border-top:1px solid var(--border)}
+
+  .hint{color:var(--muted); font-size:12px}
+  .chip{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#111827; border:1px solid var(--border); font-size:12px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span> Visual Shopping · MVP</div>
+    <div class="searchbar" title="Search title/source/tags">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <input id="q" placeholder="Search… (t/title, s/source, #tags)" />
+    </div>
+    <div class="actions">
+      <button class="ctrl primary" id="addBtn" title="Add (A)">＋ Add</button>
+      <button class="ctrl" id="exportBtn" title="Export JSON">Export</button>
+      <button class="ctrl" id="zipBtn" title="Export ZIP (packs JSON + any embedded images)">ZIP</button>
+  <button class="ctrl" id="devBtn" title="Toggle developer controls" aria-pressed="false">Dev Mode</button>
+      <button class="ctrl" id="importBtn" title="Import JSON">Import</button>
+      <button class="ctrl" id="selectBtn" title="Toggle select mode (multi-delete)">Select</button>
+      <button class="ctrl danger" id="delBtn" disabled>Delete</button>
+    </div>
+  </div>
+
+  <div class="grid-wrap">
+    <div id="grid" class="grid"></div>
+  </div>
+
+  <!-- Editor Dialog -->
+  <dialog id="editor">
+    <form method="dialog" id="editForm">
+      <div class="dlg-head">
+        <div style="font-weight:700">Add / Edit Product</div>
+        <button class="ctrl" value="cancel" id="closeEdit">Close</button>
+      </div>
+      <div class="dlg-body grid2">
+        <div class="left">
+          <div class="field"><label>Title</label><input type="text" id="f_title" required placeholder="e.g. Bodum French Press 1L" /></div>
+          <div class="field"><label>Source Link</label><input type="url" id="f_link" placeholder="https://…" /></div>
+          <div class="field"><label>Tags (comma‑separated)</label><input type="text" id="f_tags" placeholder="kitchen, minimal, glass" /></div>
+          <div class="field"><label>Notes</label><textarea id="f_notes" placeholder="Anything relevant (finish, variant, etc.)"></textarea></div>
+        </div>
+        <div class="right">
+          <div class="field"><label>Price</label>
+            <div style="display:flex; gap:8px">
+              <input type="number" id="f_price" min="0" step="0.01" placeholder="0.00" style="flex:1" />
+              <input type="text" id="f_currency" value="EUR" style="width:80px" />
+            </div>
+          </div>
+          <div class="field"><label>Image</label>
+            <div class="dropzone" id="drop">
+              <div>
+                <div style="font-weight:600">Drop / Paste an image here</div>
+                <div class="hint">or choose a file or paste an image URL below</div>
+              </div>
+              <input type="file" id="f_file" accept="image/*" />
+              <img id="preview" alt="preview" class="hidden"/>
+            </div>
+            <div class="field"><label>Image URL (optional)</label><input type="url" id="f_imgurl" placeholder="https://… (will be hot‑linked)" /></div>
+            <div class="hint">Local images are compressed and embedded (saves with your data). Remote URLs are hot‑linked (lighter, but could break).</div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg-foot">
+        <div class="hint">Tip: Press <b>A</b> to open this quickly. Clipboard images work.</div>
+        <div style="display:flex; gap:8px">
+          <button class="ctrl" id="dupBtn" type="button">Duplicate</button>
+          <button class="ctrl primary" id="saveBtn" value="default">Save</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <input type="file" id="importFile" accept="application/json" class="hidden" />
+
+<script>
+(() => {
+  const STORE_KEY = 'vshop.v1';
+  const grid = document.getElementById('grid');
+  const q = document.getElementById('q');
+  const addBtn = document.getElementById('addBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const importBtn = document.getElementById('importBtn');
+  const zipBtn = document.getElementById('zipBtn');
+  const devBtn = document.getElementById('devBtn');
+  const selectBtn = document.getElementById('selectBtn');
+  const delBtn = document.getElementById('delBtn');
+  const importFile = document.getElementById('importFile');
+
+  const editor = document.getElementById('editor');
+  const f_title = document.getElementById('f_title');
+  const f_link  = document.getElementById('f_link');
+  const f_tags  = document.getElementById('f_tags');
+  const f_notes = document.getElementById('f_notes');
+  const f_price = document.getElementById('f_price');
+  const f_curr  = document.getElementById('f_currency');
+  const f_file  = document.getElementById('f_file');
+  const f_imgurl= document.getElementById('f_imgurl');
+  const drop    = document.getElementById('drop');
+  const preview = document.getElementById('preview');
+  const dupBtn  = document.getElementById('dupBtn');
+
+  let state = load();
+  state.settings = state.settings || {};
+  let developerMode = Boolean(state.settings.developerMode);
+  let selectMode = false;
+  let selected = new Set();
+  let currentEditId = null; // if null => add new
+
+  function uid(){ return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+  function load(){
+    try{
+      const raw = localStorage.getItem(STORE_KEY);
+      if(!raw) return {products:[], settings:{}};
+      const parsed = JSON.parse(raw);
+      return {
+        products: Array.isArray(parsed.products)? parsed.products : [],
+        settings: parsed.settings || {}
+      };
+    }
+    catch(e){ console.warn('Failed to load, starting fresh', e); return {products:[], settings:{}}; }
+  }
+  function save(){
+    try{
+      state.settings = state.settings || {};
+      state.settings.developerMode = developerMode;
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    }catch(e){ alert('Save failed (maybe localStorage full). Consider exporting & clearing.'); console.error(e);} }
+
+  function domainOf(url){ try { return new URL(url).hostname.replace('www.',''); } catch { return ''; } }
+  function fmtPrice(p){ if(p==null || p=== '') return ''; const num = Number(p); if(Number.isFinite(num)) return num.toFixed(2); return p; }
+
+  function render(){
+    const term = (q.value||'').trim().toLowerCase();
+    grid.innerHTML = '';
+    const items = state.products.slice().sort((a,b)=>b.createdAt - a.createdAt);
+    for(const it of items){
+      if(term){
+        const hay = [it.title, it.link, (it.tags||[]).join(','), it.notes||''].join(' ').toLowerCase();
+        if(!hay.includes(term) && !(term.startsWith('t:') && (it.title||'').toLowerCase().includes(term.slice(2).trim()))
+           && !(term.startsWith('s:') && (it.link||'').toLowerCase().includes(term.slice(2).trim()))
+           && !(term.startsWith('#') && (it.tags||[]).some(t=>t.toLowerCase().includes(term.slice(1))))) continue;
+      }
+      const el = document.createElement('article');
+      el.className = 'card';
+      el.dataset.id = it.id;
+      const imgSrc = it.image?.dataURL || it.image?.url || '';
+      const img = `<img loading="lazy" alt="${escapeHtml(it.title||'product')}" src="${escapeAttr(imgSrc)}">`;
+      const src = it.link ? `<a href="${escapeAttr(it.link)}" target="_blank" rel="noopener noreferrer" class="src">${escapeHtml(domainOf(it.link))}</a>` : '<span class="src">—</span>';
+      const price = it.price?.amount? `<span class="price">${escapeHtml(fmtPrice(it.price.amount))} ${escapeHtml(it.price.currency||'')}</span>` : '<span class="price"></span>';
+      const tags = (it.tags||[]).slice(0,4).map(t=>`<span class="badge">#${escapeHtml(t)}</span>`).join(' ');
+      const devTools = developerMode ? `
+          <div class="dev-row">
+            <button class="devbtn" data-act="edit" type="button">Edit</button>
+            <button class="devbtn" data-act="copy" type="button">Copy JSON</button>
+          </div>` : '';
+      el.innerHTML = `
+        ${img}
+        ${selectMode? `<input class="select-check" type="checkbox" ${selected.has(it.id)?'checked':''}/>`:''}
+        <div class="meta">
+          <div class="row"><div class="title">${escapeHtml(it.title||'Untitled')}</div> ${price}</div>
+          <div class="row">
+            ${src}
+            <div>${tags}</div>
+          </div>
+          ${devTools}
+        </div>`;
+      el.addEventListener('click', (e)=>{
+        if(selectMode && e.target.closest('.select-check')){ e.stopPropagation(); return; }
+        const act = e.target?.dataset?.act;
+        if(act==='edit'){ openEditor(it.id); e.stopPropagation(); return; }
+        if(act==='copy'){ navigator.clipboard.writeText(JSON.stringify(it,null,2)); e.stopPropagation(); return; }
+        if(selectMode){
+          const chk = el.querySelector('.select-check');
+          chk.checked = !chk.checked;
+          chk.dispatchEvent(new Event('change'));
+        } else if(it.link){ window.open(it.link, '_blank','noopener'); }
+      });
+      if(selectMode){
+        const chk = el.querySelector('.select-check');
+        chk.addEventListener('change', (ev)=>{ ev.stopPropagation(); chk.checked? selected.add(it.id): selected.delete(it.id); updateDeleteButton(); });
+        chk.addEventListener('click', ev=>ev.stopPropagation());
+      }
+      grid.appendChild(el);
+    }
+  }
+
+  function updateDeleteButton(){ delBtn.disabled = selected.size===0; }
+
+  function openEditor(id){
+    currentEditId = id || null;
+    const it = id ? state.products.find(p=>p.id===id) : { id: uid(), title:'', link:'', tags:[], notes:'', image:{}, price:{amount:'',currency:'EUR'}, createdAt:Date.now() };
+    f_title.value = it.title || '';
+    f_link.value  = it.link || '';
+    f_tags.value  = (it.tags||[]).join(', ');
+    f_notes.value = it.notes || '';
+    f_price.value = (it.price?.amount??'');
+    f_curr.value  = it.price?.currency || 'EUR';
+    f_imgurl.value= it.image?.url || '';
+    preview.src = it.image?.dataURL || it.image?.url || '';
+    preview.classList.toggle('hidden', !preview.src);
+    dupBtn.onclick = () => { currentEditId = null; }; // saving will create a new id
+    if(!editor.open) editor.showModal();
+  }
+
+  function closeEditor(){ if(editor.open) editor.close(); currentEditId = null; clearFileInputs(); }
+  function clearFileInputs(){ f_file.value=''; drop.classList.remove('drag'); }
+
+  async function readImageFromFile(file){
+    // compress using canvas to keep storage reasonable
+    const maxDim = 1200; const quality = 0.88;
+    const dataUrl = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(file); });
+    const img = await loadImage(dataUrl);
+    const scale = Math.min(1, maxDim/Math.max(img.width, img.height));
+    if(scale < 1){
+      const w = Math.round(img.width*scale), h = Math.round(img.height*scale);
+      const canvas = Object.assign(document.createElement('canvas'),{width:w,height:h});
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      return canvas.toDataURL('image/jpeg', quality);
+    } else {
+      return dataUrl;
+    }
+  }
+  function loadImage(src){ return new Promise((resolve,reject)=>{ const i=new Image(); i.onload=()=>resolve(i); i.onerror=reject; i.src=src; }); }
+
+  // Event wiring
+  addBtn.onclick = () => openEditor(null);
+  document.addEventListener('keydown', e=>{ if(e.key.toLowerCase()==='a' && !editor.open){ openEditor(null); } });
+
+  exportBtn.onclick = () => {
+    const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+    downloadBlob(blob, filename('visual-shop', 'json'));
+  };
+
+  importBtn.onclick = () => { importFile.click(); };
+  importFile.onchange = async (e)=>{
+    const file = e.target.files?.[0]; if(!file) return;
+    try{
+      const text = await file.text();
+      const incoming = JSON.parse(text);
+      if(!incoming || !Array.isArray(incoming.products)) throw new Error('Invalid JSON shape');
+      const replace = confirm('Replace existing items? Cancel = Append');
+      if(replace){ state = { products: incoming.products, settings: incoming.settings||{} } }
+      else { state.products.push(...incoming.products); }
+      state.settings = state.settings || {};
+      developerMode = Boolean(state.settings.developerMode);
+      applyDeveloperMode();
+      save(); render();
+    }catch(err){ alert('Import failed: '+err.message); }
+    finally{ importFile.value=''; }
+  };
+
+  zipBtn.onclick = async () => {
+    try{
+      if(!window.JSZip){ await loadJSZip(); }
+      const zip = new JSZip();
+      const imagesFolder = zip.folder('images');
+      const copy = JSON.parse(JSON.stringify(state));
+      // Extract embedded data URLs into /images and rewrite refs
+      let imgIdx = 1;
+      for(const p of copy.products){
+        if(p.image && p.image.dataURL && p.image.dataURL.startsWith('data:')){
+          const ext = p.image.dataURL.slice(5, p.image.dataURL.indexOf(';')) === 'image/png' ? 'png' : 'jpg';
+          const name = `${p.id || 'img'}_${imgIdx++}.${ext}`;
+          const base64 = p.image.dataURL.split(',')[1];
+          imagesFolder.file(name, base64, {base64:true});
+          p.image.file = `images/${name}`;
+          // keep dataURL too for convenience
+        }
+      }
+      zip.file('products.json', JSON.stringify(copy,null,2));
+      const blob = await zip.generateAsync({type:'blob'});
+      downloadBlob(blob, filename('visual-shop', 'zip'));
+    }catch(err){ alert('ZIP export failed (maybe offline?): '+err.message); }
+  };
+
+  selectBtn.onclick = () => { selectMode = !selectMode; selected.clear(); updateDeleteButton(); render(); };
+  delBtn.onclick = () => {
+    if(selected.size===0) return; if(!confirm(`Delete ${selected.size} item(s)?`)) return;
+    state.products = state.products.filter(p => !selected.has(p.id));
+    selected.clear(); save(); render(); updateDeleteButton();
+  };
+
+  function applyDeveloperMode(){
+    document.body.classList.toggle('devmode', developerMode);
+    if(!devBtn) return;
+    devBtn.classList.toggle('active', developerMode);
+    devBtn.setAttribute('aria-pressed', developerMode ? 'true' : 'false');
+    devBtn.textContent = developerMode ? 'Dev Mode: ON' : 'Dev Mode';
+  }
+
+  if(devBtn){
+    devBtn.onclick = () => {
+      developerMode = !developerMode;
+      applyDeveloperMode();
+      save();
+      render();
+    };
+    applyDeveloperMode();
+  }
+
+  q.addEventListener('input', ()=>render());
+
+  // Editor interactions
+  drop.addEventListener('dragover', e=>{ e.preventDefault(); drop.classList.add('drag'); });
+  drop.addEventListener('dragleave', ()=>drop.classList.remove('drag'));
+  drop.addEventListener('drop', async (e)=>{
+    e.preventDefault(); drop.classList.remove('drag');
+    const f = e.dataTransfer.files?.[0]; if(f) { const url = await readImageFromFile(f); preview.src=url; preview.classList.remove('hidden'); }
+  });
+  drop.addEventListener('paste', async (e)=>{
+    const item = [...(e.clipboardData?.items||[])].find(it=>it.type.startsWith('image/'));
+    if(item){ const file = item.getAsFile(); const url = await readImageFromFile(file); preview.src=url; preview.classList.remove('hidden'); }
+  });
+  f_file.addEventListener('change', async (e)=>{
+    const f = e.target.files?.[0]; if(f){ const url = await readImageFromFile(f); preview.src=url; preview.classList.remove('hidden'); }
+  });
+
+  editor.addEventListener('close', ()=>{ clearFileInputs(); });
+
+  document.getElementById('saveBtn').addEventListener('click', (e)=>{
+    e.preventDefault();
+    const base = {
+      id: currentEditId || uid(),
+      title: f_title.value.trim(),
+      link: f_link.value.trim(),
+      tags: f_tags.value.split(',').map(t=>t.trim()).filter(Boolean),
+      notes: f_notes.value.trim(),
+      image: {},
+      price: { amount: f_price.value, currency: (f_curr.value||'').toUpperCase() },
+      createdAt: currentEditId? (state.products.find(p=>p.id===currentEditId)?.createdAt || Date.now()) : Date.now()
+    };
+    if(preview.src){ base.image.dataURL = preview.src; }
+    if(f_imgurl.value.trim()){ base.image.url = f_imgurl.value.trim(); }
+
+    if(currentEditId){
+      const idx = state.products.findIndex(p=>p.id===currentEditId);
+      if(idx>=0) state.products[idx] = base; else state.products.push(base);
+    } else {
+      state.products.push(base);
+    }
+    save(); render(); closeEditor();
+  });
+
+  dupBtn.addEventListener('click', (e)=>{
+    e.preventDefault(); currentEditId = null; const t = document.getElementById('saveBtn'); t.focus();
+  });
+
+  document.getElementById('closeEdit').addEventListener('click', (e)=>{ e.preventDefault(); closeEditor(); });
+
+  function downloadBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 1500); }
+  function filename(base, ext){ const d=new Date(); const pad=n=>String(n).padStart(2,'0'); const ts=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`; return `${base}-${ts}.${ext}`; }
+
+  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+  function escapeAttr(s){ return (s||'').replace(/["\n\r]/g, c=>({"\"":"&quot;","\n":" ","\r":" "}[c])); }
+
+  async function loadJSZip(){
+    await new Promise((resolve,reject)=>{
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      s.crossOrigin='anonymous'; s.onload=resolve; s.onerror=()=>reject(new Error('CDN failed'));
+      document.head.appendChild(s);
+    });
+  }
+
+  // Boot
+  render();
+})();
+</script>
+</body>
+</html>
