@@ -84,6 +84,15 @@
   /* Developer controls placed in meta area (not overlaying the image) */
   .devbtn{border:1px solid var(--border); background:#0e1420; padding:4px 8px; border-radius:10px; cursor:pointer; font-size:12px}
   .devbtn:hover{border-color:#2b3344}
+  /* Hover-only info overlay; default feed = images only */
+  .hoverInfo{position:absolute; left:0; right:0; bottom:0; padding:10px 12px; pointer-events:none;
+             background:linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,.65) 40%, rgba(0,0,0,.85));
+             opacity:0; transform:translateY(6px); transition:opacity .2s ease, transform .2s ease}
+  .card:hover .hoverInfo{opacity:1; transform:translateY(0)}
+  .hoverRow{display:flex; align-items:center; justify-content:space-between; gap:8px}
+  .hoverTitle{font-weight:700; text-shadow:0 1px 2px rgba(0,0,0,.6)}
+  .hoverSrc{font-size:11px; color:var(--muted); opacity:.85; margin-top:4px}
+  body[data-dev="off"] .meta{display:none}
 </style>
 </head>
 <body>
@@ -161,8 +170,7 @@
   const STORE_KEY = 'vshop.v1';
   const grid = document.getElementById('grid');
   const q = document.getElementById('q');
-  const addBtn = document.getElementById('addBtn');
-  const delBtn = document.getElementById('delBtn');
+  const addBtn = document.getElementById('addBtn');const delBtn = document.getElementById('delBtn');
   const devToggle = document.getElementById('devToggle');
   const folderBtn = document.getElementById('folderBtn');
   const importFile = document.getElementById('importFile');
@@ -220,6 +228,13 @@
       el.innerHTML = `
         ${img}
         ${selectMode? `<input class=\"select-check\" type=\"checkbox\" ${selected.has(it.id)?'checked':''}/>`:''}
+        <div class=\"hoverInfo\">
+          <div class=\"hoverRow\">
+            <div class=\"hoverTitle\">${escapeHtml(it.title||'Untitled')}</div>
+            ${price}
+          </div>
+          <div class=\"hoverSrc\">${escapeHtml(domainOf(it.link))}</div>
+        </div>
         <div class=\"meta\">
           <div class=\"row\">
             <div class=\"title\">${escapeHtml(it.title||'Untitled')}</div>
@@ -317,8 +332,7 @@
   zipBtn.onclick = async () => {
     try{
       if(!window.JSZip){ await loadJSZip(); }
-      const zip = new JSZip();
-      const imagesFolder = zip.folder('images');
+      const zip = new JSZip();const imagesFolder = zip.folder('images');
       zip.file('README.txt', `This archive was created by Visual Shopping (local-only MVP).
 
 If Windows shows a security prompt when opening files directly inside the ZIP, it's because the archive came from the Internet zone. Click 'Extract All…' first, then open files from the extracted folder.`);
@@ -350,7 +364,10 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
 
   q.addEventListener('input', ()=>render());
 
-  function updateDevToggleLabel(){ if(devToggle) devToggle.textContent = 'Dev: ' + (state.settings.devMode? 'On':'Off'); }
+  function updateDevToggleLabel(){
+    if(devToggle) devToggle.textContent = 'Dev: ' + (state.settings.devMode? 'On':'Off');
+    document.body.dataset.dev = state.settings.devMode ? 'on' : 'off';
+  }
   if(devToggle){ devToggle.addEventListener('click', ()=>{ state.settings.devMode = !state.settings.devMode; updateDevToggleLabel(); save(); render(); }); }
   // Ensure clicking the checkbox itself does not bubble to the card click
   document.addEventListener('click', (e)=>{ if(e.target && e.target.classList && e.target.classList.contains('select-check')) { e.stopPropagation(); } }, true);
