@@ -21,13 +21,12 @@
           border-bottom:1px solid var(--border);backdrop-filter:saturate(140%) blur(8px)}
   .brand{font-size:15px;font-weight:700;letter-spacing:.3px;display:flex;align-items:center;gap:10px}
   .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 6px rgba(123,216,143,.15)}
-  .actions{display:flex;gap:10px;margin-left:auto;flex-wrap:wrap}
+  .actions{display:flex;gap:10px;margin-left:auto}
   .ctrl{background:var(--panel);border:1px solid var(--border);color:var(--fg);border-radius:12px;padding:8px 12px;cursor:pointer}
   .ctrl:hover{border-color:#2b3344}
   .ctrl.primary{background:linear-gradient(180deg,#212835,#1a202c);border-color:#2a3342}
   .ctrl.danger{background:linear-gradient(180deg,#2a1c20,#23171a);border-color:#3a2630;color:#ffb3c0}
   .ctrl:disabled{opacity:.5;cursor:not-allowed}
-  .ctrl.active{border-color:var(--acc);color:var(--acc)}
 
   .searchbar{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);
              padding:8px 12px;border-radius:12px;min-width:220px}
@@ -54,12 +53,11 @@
 
   .badge{font-size:11px; padding:5px 8px; border-radius:999px; border:1px solid var(--border); background:var(--panel)}
 
-  .select-check{position:absolute; top:10px; left:10px; width:22px; height:22px}
+  .overlay{position:absolute; inset:8px; display:flex; gap:8px; justify-content:flex-end; pointer-events:none}
+  .overlay .iconbtn{pointer-events:auto; border:1px solid var(--border); background:rgba(11,14,20,.65); backdrop-filter: blur(6px) saturate(140%);
+                    padding:6px 8px; border-radius:12px; cursor:pointer}
 
-  .dev-row{display:flex;gap:8px;margin-top:6px}
-  .devbtn{border:1px solid var(--border);background:#111826;border-radius:10px;color:var(--muted);padding:6px 10px;cursor:pointer;font-size:12px}
-  .devbtn:hover{border-color:#2b3344;color:var(--fg)}
-  body.devmode .devbtn{color:var(--fg)}
+  .select-check{position:absolute; top:10px; left:10px; width:22px; height:22px}
 
   /* Dialog / Modal */
   dialog{border:none; padding:0; border-radius:var(--radius-lg); background:var(--panel); color:var(--fg);
@@ -75,12 +73,17 @@
   .field textarea{min-height:72px}
   .dropzone{border:1px dashed #344054; border-radius:12px; padding:12px; display:grid; gap:8px; place-items:center; text-align:center; background:#101521}
   .dropzone.drag{border-color:var(--acc); box-shadow:0 0 0 3px rgba(123,216,143,.18) inset}
-  .dropzone img{max-width:100%;max-height:200px;object-fit:contain;border-radius:12px}
   .dlg-foot{display:flex; justify-content:space-between; padding:14px 16px; border-top:1px solid var(--border)}
 
   .hint{color:var(--muted); font-size:12px}
   .chip{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#111827; border:1px solid var(--border); font-size:12px}
   .hidden{display:none}
+  /* Preview image inside dropzone should never blow up the layout */
+  .dropzone{border:1px dashed #344054; border-radius:12px; padding:12px; display:grid; gap:8px; place-items:center; text-align:center; background:#101521; min-height:220px}
+  .dropzone img{max-width:100%; height:auto; max-height:180px; object-fit:contain; border-radius:10px; box-shadow:var(--shadow)}
+  /* Developer controls placed in meta area (not overlaying the image) */
+  .devbtn{border:1px solid var(--border); background:#0e1420; padding:4px 8px; border-radius:10px; cursor:pointer; font-size:12px}
+  .devbtn:hover{border-color:#2b3344}
 </style>
 </head>
 <body>
@@ -94,8 +97,9 @@
       <button class="ctrl primary" id="addBtn" title="Add (A)">＋ Add</button>
       <button class="ctrl" id="exportBtn" title="Export JSON">Export</button>
       <button class="ctrl" id="zipBtn" title="Export ZIP (packs JSON + any embedded images)">ZIP</button>
-  <button class="ctrl" id="devBtn" title="Toggle developer controls" aria-pressed="false">Dev Mode</button>
+      <button class="ctrl" id="folderBtn" title="Export to folder (File System Access API)">Folder</button>
       <button class="ctrl" id="importBtn" title="Import JSON">Import</button>
+      <button class="ctrl" id="devToggle" title="Toggle developer controls">Dev: Off</button>
       <button class="ctrl" id="selectBtn" title="Toggle select mode (multi-delete)">Select</button>
       <button class="ctrl danger" id="delBtn" disabled>Delete</button>
     </div>
@@ -158,12 +162,9 @@
   const grid = document.getElementById('grid');
   const q = document.getElementById('q');
   const addBtn = document.getElementById('addBtn');
-  const exportBtn = document.getElementById('exportBtn');
-  const importBtn = document.getElementById('importBtn');
-  const zipBtn = document.getElementById('zipBtn');
-  const devBtn = document.getElementById('devBtn');
-  const selectBtn = document.getElementById('selectBtn');
   const delBtn = document.getElementById('delBtn');
+  const devToggle = document.getElementById('devToggle');
+  const folderBtn = document.getElementById('folderBtn');
   const importFile = document.getElementById('importFile');
 
   const editor = document.getElementById('editor');
@@ -180,8 +181,7 @@
   const dupBtn  = document.getElementById('dupBtn');
 
   let state = load();
-  state.settings = state.settings || {};
-  let developerMode = Boolean(state.settings.developerMode);
+  state.settings = state.settings || {}; if(typeof state.settings.devMode !== 'boolean'){ state.settings.devMode = false; }
   let selectMode = false;
   let selected = new Set();
   let currentEditId = null; // if null => add new
@@ -189,28 +189,16 @@
   function uid(){ return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
   function load(){
-    try{
-      const raw = localStorage.getItem(STORE_KEY);
-      if(!raw) return {products:[], settings:{}};
-      const parsed = JSON.parse(raw);
-      return {
-        products: Array.isArray(parsed.products)? parsed.products : [],
-        settings: parsed.settings || {}
-      };
-    }
+    try{ const raw = localStorage.getItem(STORE_KEY); if(!raw) return {products:[], settings:{}}; return JSON.parse(raw); }
     catch(e){ console.warn('Failed to load, starting fresh', e); return {products:[], settings:{}}; }
   }
-  function save(){
-    try{
-      state.settings = state.settings || {};
-      state.settings.developerMode = developerMode;
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    }catch(e){ alert('Save failed (maybe localStorage full). Consider exporting & clearing.'); console.error(e);} }
+  function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){ alert('Save failed (maybe localStorage full). Consider exporting & clearing.'); console.error(e);} }
 
   function domainOf(url){ try { return new URL(url).hostname.replace('www.',''); } catch { return ''; } }
   function fmtPrice(p){ if(p==null || p=== '') return ''; const num = Number(p); if(Number.isFinite(num)) return num.toFixed(2); return p; }
 
   function render(){
+    updateDevToggleLabel();
     const term = (q.value||'').trim().toLowerCase();
     grid.innerHTML = '';
     const items = state.products.slice().sort((a,b)=>b.createdAt - a.createdAt);
@@ -229,24 +217,23 @@
       const src = it.link ? `<a href="${escapeAttr(it.link)}" target="_blank" rel="noopener noreferrer" class="src">${escapeHtml(domainOf(it.link))}</a>` : '<span class="src">—</span>';
       const price = it.price?.amount? `<span class="price">${escapeHtml(fmtPrice(it.price.amount))} ${escapeHtml(it.price.currency||'')}</span>` : '<span class="price"></span>';
       const tags = (it.tags||[]).slice(0,4).map(t=>`<span class="badge">#${escapeHtml(t)}</span>`).join(' ');
-      const devTools = developerMode ? `
-          <div class="dev-row">
-            <button class="devbtn" data-act="edit" type="button">Edit</button>
-            <button class="devbtn" data-act="copy" type="button">Copy JSON</button>
-          </div>` : '';
       el.innerHTML = `
         ${img}
-        ${selectMode? `<input class="select-check" type="checkbox" ${selected.has(it.id)?'checked':''}/>`:''}
-        <div class="meta">
-          <div class="row"><div class="title">${escapeHtml(it.title||'Untitled')}</div> ${price}</div>
-          <div class="row">
+        ${selectMode? `<input class=\"select-check\" type=\"checkbox\" ${selected.has(it.id)?'checked':''}/>`:''}
+        <div class=\"meta\">
+          <div class=\"row\">
+            <div class=\"title\">${escapeHtml(it.title||'Untitled')}</div>
+            <div style=\"display:flex;align-items:center;gap:8px\">
+              ${price}
+              ${state.settings?.devMode ? `<button class=\"devbtn\" data-act=\"edit\" title=\"Edit\">✎</button><button class=\"devbtn\" data-act=\"copy\" title=\"Copy JSON\">⧉</button>` : ''}
+            </div>
+          </div>
+          <div class=\"row\">
             ${src}
             <div>${tags}</div>
           </div>
-          ${devTools}
         </div>`;
       el.addEventListener('click', (e)=>{
-        if(selectMode && e.target.closest('.select-check')){ e.stopPropagation(); return; }
         const act = e.target?.dataset?.act;
         if(act==='edit'){ openEditor(it.id); e.stopPropagation(); return; }
         if(act==='copy'){ navigator.clipboard.writeText(JSON.stringify(it,null,2)); e.stopPropagation(); return; }
@@ -258,8 +245,7 @@
       });
       if(selectMode){
         const chk = el.querySelector('.select-check');
-        chk.addEventListener('change', (ev)=>{ ev.stopPropagation(); chk.checked? selected.add(it.id): selected.delete(it.id); updateDeleteButton(); });
-        chk.addEventListener('click', ev=>ev.stopPropagation());
+        chk.addEventListener('change', ()=>{ chk.checked? selected.add(it.id): selected.delete(it.id); updateDeleteButton(); });
       }
       grid.appendChild(el);
     }
@@ -287,11 +273,11 @@
   function clearFileInputs(){ f_file.value=''; drop.classList.remove('drag'); }
 
   async function readImageFromFile(file){
-    // compress using canvas to keep storage reasonable
-    const maxDim = 1200; const quality = 0.88;
+    // compress using canvas to keep storage small
+    const maxW = 1280; const quality = 0.85;
     const dataUrl = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(file); });
     const img = await loadImage(dataUrl);
-    const scale = Math.min(1, maxDim/Math.max(img.width, img.height));
+    const scale = Math.min(1, maxW/img.width);
     if(scale < 1){
       const w = Math.round(img.width*scale), h = Math.round(img.height*scale);
       const canvas = Object.assign(document.createElement('canvas'),{width:w,height:h});
@@ -323,9 +309,6 @@
       const replace = confirm('Replace existing items? Cancel = Append');
       if(replace){ state = { products: incoming.products, settings: incoming.settings||{} } }
       else { state.products.push(...incoming.products); }
-      state.settings = state.settings || {};
-      developerMode = Boolean(state.settings.developerMode);
-      applyDeveloperMode();
       save(); render();
     }catch(err){ alert('Import failed: '+err.message); }
     finally{ importFile.value=''; }
@@ -336,6 +319,9 @@
       if(!window.JSZip){ await loadJSZip(); }
       const zip = new JSZip();
       const imagesFolder = zip.folder('images');
+      zip.file('README.txt', `This archive was created by Visual Shopping (local-only MVP).
+
+If Windows shows a security prompt when opening files directly inside the ZIP, it's because the archive came from the Internet zone. Click 'Extract All…' first, then open files from the extracted folder.`);
       const copy = JSON.parse(JSON.stringify(state));
       // Extract embedded data URLs into /images and rewrite refs
       let imgIdx = 1;
@@ -350,7 +336,7 @@
         }
       }
       zip.file('products.json', JSON.stringify(copy,null,2));
-      const blob = await zip.generateAsync({type:'blob'});
+      const blob = await zip.generateAsync({type:'blob', compression:'DEFLATE', compressionOptions:{level:6}});
       downloadBlob(blob, filename('visual-shop', 'zip'));
     }catch(err){ alert('ZIP export failed (maybe offline?): '+err.message); }
   };
@@ -362,25 +348,51 @@
     selected.clear(); save(); render(); updateDeleteButton();
   };
 
-  function applyDeveloperMode(){
-    document.body.classList.toggle('devmode', developerMode);
-    if(!devBtn) return;
-    devBtn.classList.toggle('active', developerMode);
-    devBtn.setAttribute('aria-pressed', developerMode ? 'true' : 'false');
-    devBtn.textContent = developerMode ? 'Dev Mode: ON' : 'Dev Mode';
-  }
-
-  if(devBtn){
-    devBtn.onclick = () => {
-      developerMode = !developerMode;
-      applyDeveloperMode();
-      save();
-      render();
-    };
-    applyDeveloperMode();
-  }
-
   q.addEventListener('input', ()=>render());
+
+  function updateDevToggleLabel(){ if(devToggle) devToggle.textContent = 'Dev: ' + (state.settings.devMode? 'On':'Off'); }
+  if(devToggle){ devToggle.addEventListener('click', ()=>{ state.settings.devMode = !state.settings.devMode; updateDevToggleLabel(); save(); render(); }); }
+  // Ensure clicking the checkbox itself does not bubble to the card click
+  document.addEventListener('click', (e)=>{ if(e.target && e.target.classList && e.target.classList.contains('select-check')) { e.stopPropagation(); } }, true);
+
+  // Export to a real folder using the File System Access API (Chrome/Edge)
+  async function exportToFolder(){
+    if(!window.showDirectoryPicker){ alert('Your browser does not support Folder export. Use Chrome or Edge.'); return; }
+    try{
+      const dir = await window.showDirectoryPicker({ mode:'readwrite' });
+      // Write JSON
+      const jsonHandle = await dir.getFileHandle('products.json', { create:true });
+      const jsonWritable = await jsonHandle.createWritable();
+      await jsonWritable.write(JSON.stringify(state, null, 2));
+      await jsonWritable.close();
+      // Write images folder
+      const imgDir = await dir.getDirectoryHandle('images', { create:true });
+      let imgIdx = 1;
+      for(const p of state.products){
+        if(p.image && p.image.dataURL && p.image.dataURL.startsWith('data:')){
+          const ext = p.image.dataURL.includes('image/png') ? 'png' : 'jpg';
+          const name = `${p.id || 'img'}_${imgIdx++}.${ext}`;
+          const fileHandle = await imgDir.getFileHandle(name, { create:true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(dataUrlToBlob(p.image.dataURL));
+          await writable.close();
+        }
+      }
+      alert('Exported to selected folder. If Windows complained about ZIPs before, this route avoids that.');
+    }catch(err){ if(err && err.name!=='AbortError') alert('Folder export failed: ' + err.message); }
+  }
+  if(folderBtn){ folderBtn.addEventListener('click', exportToFolder); }
+
+  function dataUrlToBlob(dataURL){
+    const [head, b64] = dataURL.split(',');
+    const mimeMatch = head.match(/data:(.*?);base64/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const bin = atob(b64);
+    const len = bin.length;
+    const arr = new Uint8Array(len);
+    for(let i=0;i<len;i++){ arr[i] = bin.charCodeAt(i); }
+    return new Blob([arr], { type: mime });
+  }
 
   // Editor interactions
   drop.addEventListener('dragover', e=>{ e.preventDefault(); drop.classList.add('drag'); });
@@ -429,7 +441,15 @@
 
   document.getElementById('closeEdit').addEventListener('click', (e)=>{ e.preventDefault(); closeEditor(); });
 
-  function downloadBlob(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 1500); }
+  function downloadBlob(blob, name){
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    // Give the browser ample time to consume the blob before revoking
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 60000);
+  }
   function filename(base, ext){ const d=new Date(); const pad=n=>String(n).padStart(2,'0'); const ts=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`; return `${base}-${ts}.${ext}`; }
 
   function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
