@@ -42,8 +42,14 @@
   @media (min-width:1400px){ .grid{columns: 5} }
 
   .card{display:inline-block; width:100%; margin:0 0 var(--gap); background:var(--card);
-        border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow);
-        break-inside:avoid; position:relative}
+  border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow);
+  break-inside:avoid; position:relative; cursor:grab}
+  .card.no-drag{cursor:pointer}
+  .card.dragging{opacity:.45; transform:scale(.98); cursor:grabbing}
+  .card.drag-over-top::before, .card.drag-over-bottom::before{content:""; position:absolute; left:6px; right:6px; height:4px;
+    border-radius:999px; background:var(--acc); box-shadow:0 0 8px rgba(123,216,143,.6)}
+  .card.drag-over-top::before{top:6px}
+  .card.drag-over-bottom::before{bottom:6px}
   .card img{width:100%; display:block; background:#0b0d12}
   .meta{padding:10px 12px; display:grid; gap:8px}
   .row{display:flex; align-items:center; justify-content:space-between; gap:8px}
@@ -169,6 +175,8 @@
 (() => {
   const STORE_KEY = 'vshop.v1';
   const grid = document.getElementById('grid');
+  grid.addEventListener('dragover', handleGridDragOver);
+  grid.addEventListener('drop', handleGridDrop);
   const q = document.getElementById('q');
   const addBtn = document.getElementById('addBtn');const delBtn = document.getElementById('delBtn');
   const devToggle = document.getElementById('devToggle');
@@ -189,10 +197,11 @@
   const dupBtn  = document.getElementById('dupBtn');
 
   let state = load();
-  state.settings = state.settings || {}; if(typeof state.settings.devMode !== 'boolean'){ state.settings.devMode = false; }
+  ensureSettingsDefaults();
   let selectMode = false;
   let selected = new Set();
   let currentEditId = null; // if null => add new
+  let dragState = { id:null, hoverEl:null };
 
   function uid(){ return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -204,12 +213,56 @@
 
   function domainOf(url){ try { return new URL(url).hostname.replace('www.',''); } catch { return ''; } }
   function fmtPrice(p){ if(p==null || p=== '') return ''; const num = Number(p); if(Number.isFinite(num)) return num.toFixed(2); return p; }
+  function ensureSettingsDefaults(){
+    state.settings = state.settings || {};
+    if(typeof state.settings.devMode !== 'boolean'){ state.settings.devMode = false; }
+    if(!Array.isArray(state.settings.order)){ state.settings.order = []; }
+    reconcileOrder();
+  }
+  function reconcileOrder(){
+    if(!state || !Array.isArray(state.products)){ return; }
+    for(const p of state.products){ if(!p.id){ p.id = uid(); } }
+    const ids = state.products.map(p=>p.id).filter(Boolean);
+    const seen = new Set();
+    const existing = Array.isArray(state.settings.order)
+      ? state.settings.order.filter(id=>{
+          if(!ids.includes(id) || seen.has(id)){ return false; }
+          seen.add(id);
+          return true;
+        })
+      : [];
+    const missing = state.products
+      .filter(p=>!seen.has(p.id))
+      .sort((a,b)=> (b.createdAt||0) - (a.createdAt||0))
+      .map(p=>p.id);
+    state.settings.order = [...missing, ...existing];
+    syncProductsToOrder();
+  }
+  function syncProductsToOrder(){
+    if(!Array.isArray(state.products) || !Array.isArray(state.settings.order)){ return; }
+    const orderIndex = new Map(state.settings.order.map((id, idx)=>[id, idx]));
+    state.products.sort((a,b)=>{
+      const ai = orderIndex.has(a.id) ? orderIndex.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const bi = orderIndex.has(b.id) ? orderIndex.get(b.id) : Number.MAX_SAFE_INTEGER;
+      return ai - bi;
+    });
+  }
 
   function render(){
     updateDevToggleLabel();
+    dragState.hoverEl = null;
+    dragState.id = null;
     const term = (q.value||'').trim().toLowerCase();
     grid.innerHTML = '';
-    const items = state.products.slice().sort((a,b)=>b.createdAt - a.createdAt);
+    const order = Array.isArray(state.settings.order) ? state.settings.order : [];
+    const orderIndex = new Map(order.map((id, idx)=>[id, idx]));
+    const items = state.products.slice().sort((a,b)=>{
+      const ai = orderIndex.has(a.id) ? orderIndex.get(a.id) : Number.MAX_SAFE_INTEGER;
+      const bi = orderIndex.has(b.id) ? orderIndex.get(b.id) : Number.MAX_SAFE_INTEGER;
+      if(ai !== bi){ return ai - bi; }
+      return (b.createdAt||0) - (a.createdAt||0);
+    });
+    const dragEnabled = !selectMode && term === '';
     for(const it of items){
       if(term){
         const hay = [it.title, it.link, (it.tags||[]).join(','), it.notes||''].join(' ').toLowerCase();
@@ -261,12 +314,123 @@
       if(selectMode){
         const chk = el.querySelector('.select-check');
         chk.addEventListener('change', ()=>{ chk.checked? selected.add(it.id): selected.delete(it.id); updateDeleteButton(); });
+        el.draggable = false;
+        el.classList.add('no-drag');
+      } else if(dragEnabled){
+        enableCardDrag(el);
+      } else {
+        el.draggable = false;
+        el.classList.add('no-drag');
       }
       grid.appendChild(el);
     }
   }
 
   function updateDeleteButton(){ delBtn.disabled = selected.size===0; }
+
+  function enableCardDrag(el){
+    el.classList.remove('no-drag','dragging','drag-over-top','drag-over-bottom');
+    el.draggable = true;
+    el.addEventListener('dragstart', handleCardDragStart);
+    el.addEventListener('dragend', handleCardDragEnd);
+    el.addEventListener('dragover', handleCardDragOver);
+    el.addEventListener('dragleave', handleCardDragLeave);
+    el.addEventListener('drop', handleCardDrop);
+  }
+  function handleCardDragStart(e){
+    if(selectMode){ e.preventDefault(); return; }
+    const card = e.currentTarget;
+    if(e.target && (e.target.closest('.devbtn') || e.target.closest('.select-check') || e.target.closest('.iconbtn'))){
+      e.preventDefault();
+      return;
+    }
+    dragState.id = card.dataset.id;
+    if(!dragState.id){ e.preventDefault(); dragState.id = null; return; }
+    dragState.hoverEl = null;
+    e.dataTransfer.effectAllowed = 'move';
+    try{ e.dataTransfer.setData('text/plain', dragState.id || ''); }catch{}
+    card.classList.add('dragging');
+  }
+  function handleCardDragEnd(e){
+    const card = e.currentTarget;
+    card.classList.remove('dragging');
+    clearDragHover();
+    dragState.id = null;
+  }
+  function handleCardDragOver(e){
+    if(!dragState.id || selectMode){ return; }
+    const card = e.currentTarget;
+    if(card.dataset.id === dragState.id){ return; }
+    e.preventDefault();
+    const rect = card.getBoundingClientRect();
+    const before = e.clientY < rect.top + rect.height / 2;
+    if(dragState.hoverEl && dragState.hoverEl !== card){
+      dragState.hoverEl.classList.remove('drag-over-top','drag-over-bottom');
+    }
+    card.classList.toggle('drag-over-top', before);
+    card.classList.toggle('drag-over-bottom', !before);
+    dragState.hoverEl = card;
+  }
+  function handleCardDragLeave(e){
+    const card = e.currentTarget;
+    if(card === dragState.hoverEl){
+      card.classList.remove('drag-over-top','drag-over-bottom');
+      dragState.hoverEl = null;
+    }
+  }
+  function handleCardDrop(e){
+    if(!dragState.id || selectMode){ return; }
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.currentTarget;
+    const targetId = target.dataset.id;
+    const rect = target.getBoundingClientRect();
+    const before = e.clientY < rect.top + rect.height / 2;
+    target.classList.remove('drag-over-top','drag-over-bottom');
+    clearDragHover();
+    if(targetId && targetId !== dragState.id){
+      reorderProducts(dragState.id, targetId, before);
+    } else {
+      dragState.id = null;
+    }
+  }
+  function handleGridDragOver(e){
+    if(!dragState.id || selectMode){ return; }
+    e.preventDefault();
+  }
+  function handleGridDrop(e){
+    if(!dragState.id || selectMode){ return; }
+    e.preventDefault();
+    clearDragHover();
+    reorderProducts(dragState.id, null, false);
+  }
+  function clearDragHover(){
+    if(dragState.hoverEl){
+      dragState.hoverEl.classList.remove('drag-over-top','drag-over-bottom');
+      dragState.hoverEl = null;
+    }
+  }
+  function reorderProducts(sourceId, targetId, placeBefore){
+    const order = Array.isArray(state.settings.order) ? [...state.settings.order] : [];
+    const srcIdx = order.indexOf(sourceId);
+    if(srcIdx === -1){ return; }
+    order.splice(srcIdx, 1);
+    if(targetId){
+      let insertAt = order.indexOf(targetId);
+      if(insertAt === -1){ insertAt = placeBefore ? order.length : order.length; }
+      if(!placeBefore){ insertAt += 1; }
+      order.splice(insertAt, 0, sourceId);
+    } else {
+      if(placeBefore){ order.unshift(sourceId); }
+      else { order.push(sourceId); }
+    }
+    state.settings.order = order;
+    dragState.id = null;
+    dragState.hoverEl = null;
+    syncProductsToOrder();
+    save();
+    render();
+  }
 
   function openEditor(id){
     currentEditId = id || null;
@@ -322,8 +486,18 @@
       const incoming = JSON.parse(text);
       if(!incoming || !Array.isArray(incoming.products)) throw new Error('Invalid JSON shape');
       const replace = confirm('Replace existing items? Cancel = Append');
-      if(replace){ state = { products: incoming.products, settings: incoming.settings||{} } }
-      else { state.products.push(...incoming.products); }
+      if(replace){
+        state = { products: incoming.products || [], settings: incoming.settings || {} };
+      } else {
+        const newProducts = incoming.products || [];
+        state.products.push(...newProducts);
+        const incomingOrder = Array.isArray(incoming.settings?.order)
+          ? incoming.settings.order.filter(Boolean)
+          : newProducts.map(p=>p.id).filter(Boolean);
+        if(!Array.isArray(state.settings.order)){ state.settings.order = []; }
+        state.settings.order = [...incomingOrder, ...state.settings.order];
+      }
+      ensureSettingsDefaults();
       save(); render();
     }catch(err){ alert('Import failed: '+err.message); }
     finally{ importFile.value=''; }
@@ -359,7 +533,12 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
   delBtn.onclick = () => {
     if(selected.size===0) return; if(!confirm(`Delete ${selected.size} item(s)?`)) return;
     state.products = state.products.filter(p => !selected.has(p.id));
-    selected.clear(); save(); render(); updateDeleteButton();
+    if(Array.isArray(state.settings.order)){
+      state.settings.order = state.settings.order.filter(id => !selected.has(id));
+    }
+    selected.clear();
+    reconcileOrder();
+    save(); render(); updateDeleteButton();
   };
 
   q.addEventListener('input', ()=>render());
@@ -416,14 +595,41 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
   drop.addEventListener('dragleave', ()=>drop.classList.remove('drag'));
   drop.addEventListener('drop', async (e)=>{
     e.preventDefault(); drop.classList.remove('drag');
-    const f = e.dataTransfer.files?.[0]; if(f) { const url = await readImageFromFile(f); preview.src=url; preview.classList.remove('hidden'); }
+    const f = e.dataTransfer.files?.[0]; if(f) {
+      const url = await readImageFromFile(f);
+      preview.src=url;
+      preview.classList.remove('hidden');
+      f_imgurl.value='';
+    }
   });
   drop.addEventListener('paste', async (e)=>{
     const item = [...(e.clipboardData?.items||[])].find(it=>it.type.startsWith('image/'));
-    if(item){ const file = item.getAsFile(); const url = await readImageFromFile(file); preview.src=url; preview.classList.remove('hidden'); }
+    if(item){
+      const file = item.getAsFile();
+      const url = await readImageFromFile(file);
+      preview.src=url;
+      preview.classList.remove('hidden');
+      f_imgurl.value='';
+    }
   });
   f_file.addEventListener('change', async (e)=>{
-    const f = e.target.files?.[0]; if(f){ const url = await readImageFromFile(f); preview.src=url; preview.classList.remove('hidden'); }
+    const f = e.target.files?.[0]; if(f){
+      const url = await readImageFromFile(f);
+      preview.src=url;
+      preview.classList.remove('hidden');
+      f_imgurl.value='';
+    }
+  });
+  f_imgurl.addEventListener('input', ()=>{
+    const val = f_imgurl.value.trim();
+    if(val){
+      preview.src = val;
+      preview.classList.remove('hidden');
+      f_file.value='';
+    } else if(!f_file.files?.length && (!preview.src || !preview.src.startsWith('data:'))){
+      preview.src='';
+      preview.classList.add('hidden');
+    }
   });
 
   editor.addEventListener('close', ()=>{ clearFileInputs(); });
@@ -440,8 +646,9 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
       price: { amount: f_price.value, currency: (f_curr.value||'').toUpperCase() },
       createdAt: currentEditId? (state.products.find(p=>p.id===currentEditId)?.createdAt || Date.now()) : Date.now()
     };
-    if(preview.src){ base.image.dataURL = preview.src; }
-    if(f_imgurl.value.trim()){ base.image.url = f_imgurl.value.trim(); }
+  const imageUrl = f_imgurl.value.trim();
+  if(preview.src && preview.src.startsWith('data:')){ base.image.dataURL = preview.src; }
+  if(imageUrl){ base.image.url = imageUrl; }
 
     if(currentEditId){
       const idx = state.products.findIndex(p=>p.id===currentEditId);
@@ -449,6 +656,7 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
     } else {
       state.products.push(base);
     }
+    reconcileOrder();
     save(); render(); closeEditor();
   });
 
