@@ -58,6 +58,17 @@
   .src{color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
   .badge{font-size:11px; padding:5px 8px; border-radius:999px; border:1px solid var(--border); background:var(--panel)}
+  .badge-archived{background:#221d1f; border-color:#3a2c30; color:#ffb3c0}
+  .autoFill{display:flex; gap:8px}
+  .autoFill input{flex:1}
+  .image-options{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px}
+  .image-option{border:1px solid var(--border); background:#0f141d; border-radius:12px; padding:4px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:6px; min-width:86px}
+  .image-option img{width:78px; height:78px; object-fit:cover; border-radius:8px; box-shadow:var(--shadow)}
+  .image-option span{font-size:10px; color:var(--muted); text-align:center}
+  .image-option.active{border-color:var(--acc); box-shadow:0 0 0 2px rgba(123,216,143,.35)}
+  .scrape-status{font-size:12px; color:var(--muted); min-height:16px}
+  .scrape-status.error{color:#ffb3c0}
+  .scrape-status.success{color:var(--acc)}
 
   .overlay{position:absolute; inset:8px; display:flex; gap:8px; justify-content:flex-end; pointer-events:none}
   .overlay .iconbtn{pointer-events:auto; border:1px solid var(--border); background:rgba(11,14,20,.65); backdrop-filter: blur(6px) saturate(140%);
@@ -109,12 +120,13 @@
       <input id="q" placeholder="Search… (t/title, s/source, #tags)" />
     </div>
     <div class="actions">
-      <button class="ctrl primary" id="addBtn" title="Add (A)">＋ Add</button>
+  <button class="ctrl primary" id="addBtn" title="Add (+)">＋ Add</button>
       <button class="ctrl" id="exportBtn" title="Export JSON">Export</button>
       <button class="ctrl" id="zipBtn" title="Export ZIP (packs JSON + any embedded images)">ZIP</button>
       <button class="ctrl" id="folderBtn" title="Export to folder (File System Access API)">Folder</button>
       <button class="ctrl" id="importBtn" title="Import JSON">Import</button>
-      <button class="ctrl" id="devToggle" title="Toggle developer controls">Dev: Off</button>
+  <button class="ctrl" id="devToggle" title="Toggle developer controls (D)">Dev: Off</button>
+  <button class="ctrl" id="archiveToggle" title="Show only archived items (A)">Archived: Off</button>
       <button class="ctrl" id="selectBtn" title="Toggle select mode (multi-delete)">Select</button>
       <button class="ctrl danger" id="delBtn" disabled>Delete</button>
     </div>
@@ -131,14 +143,23 @@
         <div style="font-weight:700">Add / Edit Product</div>
         <button class="ctrl" value="cancel" id="closeEdit">Close</button>
       </div>
-      <div class="dlg-body grid2">
-        <div class="left">
+      <div class="dlg-body">
+        <div class="field">
+          <label>Auto-fill from URL</label>
+          <div class="autoFill">
+            <input type="url" id="f_scrape" placeholder="Paste a product page URL" />
+            <button class="ctrl" id="scrapeBtn" type="button">Fetch</button>
+          </div>
+          <div class="scrape-status" id="scrapeStatus"></div>
+        </div>
+        <div class="grid2">
+          <div class="left">
           <div class="field"><label>Title</label><input type="text" id="f_title" required placeholder="e.g. Bodum French Press 1L" /></div>
           <div class="field"><label>Source Link</label><input type="url" id="f_link" placeholder="https://…" /></div>
           <div class="field"><label>Tags (comma‑separated)</label><input type="text" id="f_tags" placeholder="kitchen, minimal, glass" /></div>
           <div class="field"><label>Notes</label><textarea id="f_notes" placeholder="Anything relevant (finish, variant, etc.)"></textarea></div>
-        </div>
-        <div class="right">
+          </div>
+          <div class="right">
           <div class="field"><label>Price</label>
             <div style="display:flex; gap:8px">
               <input type="number" id="f_price" min="0" step="0.01" placeholder="0.00" style="flex:1" />
@@ -154,13 +175,15 @@
               <input type="file" id="f_file" accept="image/*" />
               <img id="preview" alt="preview" class="hidden"/>
             </div>
+            <div id="imageOptionsWrap" class="hidden"></div>
             <div class="field"><label>Image URL (optional)</label><input type="url" id="f_imgurl" placeholder="https://… (will be hot‑linked)" /></div>
             <div class="hint">Local images are compressed and embedded (saves with your data). Remote URLs are hot‑linked (lighter, but could break).</div>
+          </div>
           </div>
         </div>
       </div>
       <div class="dlg-foot">
-        <div class="hint">Tip: Press <b>A</b> to open this quickly. Clipboard images work.</div>
+  <div class="hint">Tip: Press <b>+</b> to open this quickly. Clipboard images work.</div>
         <div style="display:flex; gap:8px">
           <button class="ctrl" id="dupBtn" type="button">Duplicate</button>
           <button class="ctrl primary" id="saveBtn" value="default">Save</button>
@@ -180,6 +203,7 @@
   const q = document.getElementById('q');
   const addBtn = document.getElementById('addBtn');const delBtn = document.getElementById('delBtn');
   const devToggle = document.getElementById('devToggle');
+  const archiveToggle = document.getElementById('archiveToggle');
   const folderBtn = document.getElementById('folderBtn');
   const importFile = document.getElementById('importFile');
 
@@ -195,6 +219,10 @@
   const drop    = document.getElementById('drop');
   const preview = document.getElementById('preview');
   const dupBtn  = document.getElementById('dupBtn');
+  const scrapeInput = document.getElementById('f_scrape');
+  const scrapeBtn = document.getElementById('scrapeBtn');
+  const scrapeStatus = document.getElementById('scrapeStatus');
+  const imageOptionsWrap = document.getElementById('imageOptionsWrap');
 
   let state = load();
   ensureSettingsDefaults();
@@ -202,6 +230,8 @@
   let selected = new Set();
   let currentEditId = null; // if null => add new
   let dragState = { id:null, hoverEl:null };
+  let imageCandidates = [];
+  let selectedImageCandidate = -1;
 
   function uid(){ return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -216,12 +246,16 @@
   function ensureSettingsDefaults(){
     state.settings = state.settings || {};
     if(typeof state.settings.devMode !== 'boolean'){ state.settings.devMode = false; }
+    if(typeof state.settings.showArchivedOnly !== 'boolean'){ state.settings.showArchivedOnly = false; }
     if(!Array.isArray(state.settings.order)){ state.settings.order = []; }
     reconcileOrder();
   }
   function reconcileOrder(){
     if(!state || !Array.isArray(state.products)){ return; }
-    for(const p of state.products){ if(!p.id){ p.id = uid(); } }
+    for(const p of state.products){
+      if(!p.id){ p.id = uid(); }
+      if(typeof p.archived !== 'boolean'){ p.archived = false; }
+    }
     const ids = state.products.map(p=>p.id).filter(Boolean);
     const seen = new Set();
     const existing = Array.isArray(state.settings.order)
@@ -250,6 +284,7 @@
 
   function render(){
     updateDevToggleLabel();
+    updateArchiveToggleLabel();
     dragState.hoverEl = null;
     dragState.id = null;
     const term = (q.value||'').trim().toLowerCase();
@@ -263,7 +298,13 @@
       return (b.createdAt||0) - (a.createdAt||0);
     });
     const dragEnabled = !selectMode && term === '';
+    const showArchivedOnly = Boolean(state.settings.showArchivedOnly);
     for(const it of items){
+      if(showArchivedOnly){
+        if(!it.archived){ continue; }
+      } else if(it.archived){
+        continue;
+      }
       if(term){
         const hay = [it.title, it.link, (it.tags||[]).join(','), it.notes||''].join(' ').toLowerCase();
         if(!hay.includes(term) && !(term.startsWith('t:') && (it.title||'').toLowerCase().includes(term.slice(2).trim()))
@@ -273,11 +314,16 @@
       const el = document.createElement('article');
       el.className = 'card';
       el.dataset.id = it.id;
+  if(it.archived){ el.classList.add('archived'); }
       const imgSrc = it.image?.dataURL || it.image?.url || '';
       const img = `<img loading="lazy" alt="${escapeHtml(it.title||'product')}" src="${escapeAttr(imgSrc)}">`;
       const src = it.link ? `<a href="${escapeAttr(it.link)}" target="_blank" rel="noopener noreferrer" class="src">${escapeHtml(domainOf(it.link))}</a>` : '<span class="src">—</span>';
       const price = it.price?.amount? `<span class="price">${escapeHtml(fmtPrice(it.price.amount))} ${escapeHtml(it.price.currency||'')}</span>` : '<span class="price"></span>';
-      const tags = (it.tags||[]).slice(0,4).map(t=>`<span class="badge">#${escapeHtml(t)}</span>`).join(' ');
+      const tagsRaw = (it.tags||[]).slice(0,4).map(t=>`<span class="badge">#${escapeHtml(t)}</span>`).join(' ');
+      const archivedBadge = it.archived ? '<span class="badge badge-archived">Archived</span>' : '';
+      const tags = [archivedBadge, tagsRaw].filter(Boolean).join(' ');
+      const archiveLabel = it.archived ? 'Unarchive' : 'Archive';
+      const archiveTitle = it.archived ? 'Move back to active list' : 'Move to archive';
       el.innerHTML = `
         ${img}
         ${selectMode? `<input class=\"select-check\" type=\"checkbox\" ${selected.has(it.id)?'checked':''}/>`:''}
@@ -293,7 +339,7 @@
             <div class=\"title\">${escapeHtml(it.title||'Untitled')}</div>
             <div style=\"display:flex;align-items:center;gap:8px\">
               ${price}
-              ${state.settings?.devMode ? `<button class=\"devbtn\" data-act=\"edit\" title=\"Edit\">✎</button><button class=\"devbtn\" data-act=\"copy\" title=\"Copy JSON\">⧉</button>` : ''}
+              ${state.settings?.devMode ? `<button class=\"devbtn\" data-act=\"edit\" title=\"Edit\">✎</button><button class=\"devbtn\" data-act=\"copy\" title=\"Copy JSON\">⧉</button><button class=\"devbtn\" data-act=\"archive\" title=\"${escapeAttr(archiveTitle)}\">${archiveLabel}</button>` : ''}
             </div>
           </div>
           <div class=\"row\">
@@ -305,6 +351,7 @@
         const act = e.target?.dataset?.act;
         if(act==='edit'){ openEditor(it.id); e.stopPropagation(); return; }
         if(act==='copy'){ navigator.clipboard.writeText(JSON.stringify(it,null,2)); e.stopPropagation(); return; }
+        if(act==='archive'){ toggleArchive(it.id); e.stopPropagation(); return; }
         if(selectMode){
           const chk = el.querySelector('.select-check');
           chk.checked = !chk.checked;
@@ -327,6 +374,300 @@
   }
 
   function updateDeleteButton(){ delBtn.disabled = selected.size===0; }
+
+  function toggleArchive(id){
+    const product = state.products.find(p=>p.id===id);
+    if(!product){ return; }
+    product.archived = !product.archived;
+    save();
+    render();
+  }
+
+  function setScrapeStatus(message, tone){
+    if(!scrapeStatus){ return; }
+    scrapeStatus.textContent = message || '';
+    scrapeStatus.classList.remove('error','success');
+    if(tone){ scrapeStatus.classList.add(tone); }
+  }
+
+  function resetImagePicker(){
+    imageCandidates = [];
+    selectedImageCandidate = -1;
+    if(imageOptionsWrap){
+      imageOptionsWrap.innerHTML = '';
+      imageOptionsWrap.classList.add('hidden');
+    }
+  }
+
+  function updateImageOptionSelection(){
+    if(!imageOptionsWrap){ return; }
+    const options = imageOptionsWrap.querySelectorAll('.image-option');
+    options.forEach(opt=>{
+      const idx = Number(opt.dataset.index);
+      opt.classList.toggle('active', idx === selectedImageCandidate);
+    });
+  }
+
+  function renderImageOptions(){
+    if(!imageOptionsWrap){ return; }
+    imageOptionsWrap.innerHTML = '';
+    if(!imageCandidates.length){
+      imageOptionsWrap.classList.add('hidden');
+      return;
+    }
+    imageOptionsWrap.classList.remove('hidden');
+    const label = document.createElement('div');
+    label.className = 'hint';
+    label.textContent = 'Choose an image to use:';
+    imageOptionsWrap.appendChild(label);
+    const list = document.createElement('div');
+    list.className = 'image-options';
+    imageCandidates.forEach((src, idx)=>{
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'image-option';
+      btn.dataset.index = String(idx);
+      btn.innerHTML = `<img src="${escapeAttr(src)}" alt="Candidate ${idx+1}"><span>Option ${idx+1}</span>`;
+      btn.addEventListener('click', ()=>selectImageCandidate(idx));
+      list.appendChild(btn);
+    });
+    imageOptionsWrap.appendChild(list);
+    updateImageOptionSelection();
+  }
+
+  function selectImageCandidate(idx){
+    if(idx < 0 || idx >= imageCandidates.length){ return; }
+    const src = imageCandidates[idx];
+    selectedImageCandidate = idx;
+    if(preview){
+      preview.src = src;
+      preview.classList.remove('hidden');
+    }
+    if(f_imgurl){ f_imgurl.value = src; }
+    if(f_file){ f_file.value = ''; }
+    updateImageOptionSelection();
+  }
+
+  async function autoFillFromUrl(rawUrl){
+    const url = (rawUrl || '').trim();
+    if(!url){
+      setScrapeStatus('Enter a valid URL first.', 'error');
+      return;
+    }
+    const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    setScrapeStatus('Fetching…');
+    const prevLabel = scrapeBtn?.textContent;
+    if(scrapeBtn){ scrapeBtn.disabled = true; scrapeBtn.textContent = 'Fetching…'; }
+    try{
+      const html = await fetchProductHTML(normalized);
+      if(!html){ throw new Error('Empty response'); }
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const baseHref = doc.querySelector('base[href]')?.getAttribute('href') || '';
+      const baseUrl = resolveMaybe(baseHref, normalized) || normalized;
+      const info = extractProductInfo(doc, baseUrl, normalized);
+      applyScrapeResult(info, normalized);
+      setScrapeStatus('Auto-filled from page.', 'success');
+    }catch(err){
+      console.error('Auto-fill failed', err);
+      setScrapeStatus(`Auto-fill failed: ${err.message || err}`, 'error');
+    }finally{
+      if(scrapeBtn){
+        scrapeBtn.disabled = false;
+        scrapeBtn.textContent = prevLabel || 'Fetch';
+      }
+    }
+  }
+
+  async function fetchProductHTML(url){
+    let lastError = null;
+    try{
+      const direct = await fetch(url, { mode:'cors' });
+      if(direct.ok){
+        const text = await direct.text();
+        if(text){ return text; }
+      }
+    }catch(err){
+      lastError = err;
+    }
+    try{
+      const proxyUrl = buildProxyUrl(url);
+      const proxied = await fetch(proxyUrl, { mode:'cors' });
+      if(!proxied.ok){ throw new Error(`Proxy fetch failed (${proxied.status})`); }
+      return await proxied.text();
+    }catch(err){
+      throw err || lastError || new Error('Fetch failed');
+    }
+  }
+
+  function buildProxyUrl(url){
+    const parsed = new URL(url);
+    return `https://r.jina.ai/${parsed.protocol}//${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  }
+
+  function applyScrapeResult(info, fallbackUrl){
+    if(!info || typeof info !== 'object'){ throw new Error('No data returned'); }
+    const resolvedUrl = info.url || fallbackUrl;
+    if(f_link && resolvedUrl){ f_link.value = resolvedUrl; }
+    if(scrapeInput && resolvedUrl){ scrapeInput.value = resolvedUrl; }
+    if(info.title && !f_title.value){ f_title.value = info.title; }
+    if(info.description && !f_notes.value){ f_notes.value = info.description; }
+    if(info.tags && info.tags.length && !f_tags.value){ f_tags.value = info.tags.join(', '); }
+    if(info.price && !f_price.value){ f_price.value = info.price; }
+    if(info.currency){ f_curr.value = info.currency; }
+    resetImagePicker();
+    if(info.images && info.images.length){
+      imageCandidates = info.images;
+      selectedImageCandidate = -1;
+      renderImageOptions();
+      if(!preview.src || preview.classList.contains('hidden')){
+        selectImageCandidate(0);
+      } else {
+        updateImageOptionSelection();
+      }
+    }
+  }
+
+  function extractProductInfo(doc, baseUrl, originalUrl){
+    const meta = sel => (doc.querySelector(sel)?.getAttribute('content') || '').trim();
+    const textContent = sel => (doc.querySelector(sel)?.textContent || '').trim();
+    const canonicalHref = doc.querySelector('link[rel="canonical"]')?.getAttribute('href');
+    const ogUrl = meta('meta[property="og:url"]');
+    const info = {
+      url: resolveMaybe(canonicalHref, originalUrl) || resolveMaybe(ogUrl, originalUrl) || originalUrl,
+      title: '',
+      description: '',
+      price: '',
+      currency: '',
+      tags: [],
+      images: []
+    };
+    const titleCandidates = [
+      meta('meta[property="og:title"]'),
+      meta('meta[name="twitter:title"]'),
+      textContent('title')
+    ].filter(Boolean);
+    info.title = titleCandidates[0] || '';
+
+    const descCandidates = [
+      meta('meta[name="description"]'),
+      meta('meta[property="og:description"]'),
+      meta('meta[name="twitter:description"]')
+    ].filter(Boolean);
+    info.description = descCandidates[0] || '';
+
+    const priceCandidates = [
+      meta('meta[property="product:price:amount"]'),
+      meta('meta[name="twitter:data1"]'),
+      doc.querySelector('[itemprop="price"]')?.getAttribute('content') || doc.querySelector('[itemprop="price"]')?.textContent?.trim()
+    ].filter(Boolean);
+    info.price = normalizePrice(priceCandidates[0] || '');
+
+    const currencyCandidates = [
+      meta('meta[property="product:price:currency"]'),
+      doc.querySelector('[itemprop="priceCurrency"]')?.getAttribute('content')
+    ].filter(Boolean);
+    const currencyRaw = currencyCandidates[0] || '';
+    info.currency = currencyRaw ? currencyRaw.toUpperCase().slice(0,3) : '';
+
+    const keywords = meta('meta[name="keywords"]');
+    if(keywords){
+      info.tags = keywords.split(',').map(t=>t.trim()).filter(Boolean).slice(0,6);
+    }
+
+    const addImage = (src)=>{
+      const resolved = resolveMaybe(src, baseUrl || originalUrl);
+      if(resolved && !info.images.includes(resolved)){ info.images.push(resolved); }
+    };
+    [
+      meta('meta[property="og:image"]'),
+      meta('meta[property="og:image:secure_url"]'),
+      meta('meta[name="twitter:image"]'),
+      doc.querySelector('link[rel="image_src"]')?.getAttribute('href')
+    ].filter(Boolean).forEach(addImage);
+
+    const ldProduct = extractProductFromJSONLD(doc);
+    if(ldProduct){
+      info.title = info.title || ldProduct.name || '';
+      info.description = info.description || ldProduct.description || '';
+      if(ldProduct.category && !info.tags.length){
+        const categories = Array.isArray(ldProduct.category) ? ldProduct.category : [ldProduct.category];
+        info.tags = categories.map(String).map(t=>t.trim()).filter(Boolean).slice(0,6);
+      }
+      if(ldProduct.keywords && !info.tags.length){
+        const kw = Array.isArray(ldProduct.keywords) ? ldProduct.keywords : String(ldProduct.keywords).split(',');
+        info.tags = kw.map(String).map(t=>t.trim()).filter(Boolean).slice(0,6);
+      }
+      const offers = Array.isArray(ldProduct.offers) ? ldProduct.offers[0] : ldProduct.offers;
+      if(offers){
+        info.price = info.price || normalizePrice(offers.price || offers.priceSpecification?.price || '');
+        const currency = offers.priceCurrency || offers.priceSpecification?.priceCurrency;
+        if(currency){ info.currency = currency.toUpperCase().slice(0,3); }
+      }
+      const ldImages = Array.isArray(ldProduct.image) ? ldProduct.image : [ldProduct.image];
+      ldImages.filter(Boolean).forEach(addImage);
+      if(ldProduct.url){ info.url = resolveMaybe(ldProduct.url, baseUrl) || info.url; }
+    }
+
+    info.images = info.images.filter(Boolean);
+    if(info.currency && info.currency.length !==3){ info.currency = ''; }
+    return info;
+  }
+
+  function extractProductFromJSONLD(doc){
+    const scripts = [...doc.querySelectorAll('script[type="application/ld+json"]')];
+    for(const script of scripts){
+      const text = script.textContent?.trim();
+      if(!text){ continue; }
+      try{
+        const json = JSON.parse(text);
+        const product = findProductNode(json);
+        if(product){ return product; }
+      }catch(err){
+        continue;
+      }
+    }
+    return null;
+  }
+
+  function findProductNode(node){
+    if(!node){ return null; }
+    if(Array.isArray(node)){
+      for(const item of node){
+        const found = findProductNode(item);
+        if(found){ return found; }
+      }
+      return null;
+    }
+    if(typeof node === 'object'){
+      const type = node['@type'];
+      const isProduct = Array.isArray(type) ? type.includes('Product') : type === 'Product';
+      if(isProduct){ return node; }
+      for(const key of Object.keys(node)){
+        const found = findProductNode(node[key]);
+        if(found){ return found; }
+      }
+    }
+    return null;
+  }
+
+  function resolveMaybe(url, base){
+    if(!url){ return ''; }
+    try{ return new URL(url, base).href; }catch{ return ''; }
+  }
+
+  function normalizePrice(value){
+    if(!value){ return ''; }
+    const cleaned = String(value).trim();
+    if(!cleaned){ return ''; }
+    const replaced = cleaned.replace(/[^0-9.,]/g, '');
+    if(!replaced){ return ''; }
+    if(replaced.includes(',') && !replaced.includes('.')){
+      const lastComma = replaced.lastIndexOf(',');
+      return replaced.slice(0,lastComma).replace(/,/g,'') + '.' + replaced.slice(lastComma+1);
+    }
+    return replaced;
+  }
 
   function enableCardDrag(el){
     el.classList.remove('no-drag','dragging','drag-over-top','drag-over-bottom');
@@ -434,7 +775,10 @@
 
   function openEditor(id){
     currentEditId = id || null;
-    const it = id ? state.products.find(p=>p.id===id) : { id: uid(), title:'', link:'', tags:[], notes:'', image:{}, price:{amount:'',currency:'EUR'}, createdAt:Date.now() };
+    const it = id ? state.products.find(p=>p.id===id) : { id: uid(), title:'', link:'', tags:[], notes:'', image:{}, price:{amount:'',currency:'EUR'}, createdAt:Date.now(), archived:false };
+    if(scrapeInput){ scrapeInput.value = it?.link || ''; }
+    setScrapeStatus('');
+    resetImagePicker();
     f_title.value = it.title || '';
     f_link.value  = it.link || '';
     f_tags.value  = (it.tags||[]).join(', ');
@@ -471,7 +815,43 @@
 
   // Event wiring
   addBtn.onclick = () => openEditor(null);
-  document.addEventListener('keydown', e=>{ if(e.key.toLowerCase()==='a' && !editor.open){ openEditor(null); } });
+  if(scrapeBtn){ scrapeBtn.addEventListener('click', ()=>{ autoFillFromUrl(scrapeInput?.value || f_link.value); }); }
+  if(scrapeInput){
+    scrapeInput.addEventListener('keydown', e=>{
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        autoFillFromUrl(scrapeInput.value);
+      }
+    });
+    scrapeInput.addEventListener('paste', e=>{
+      requestAnimationFrame(()=>{ autoFillFromUrl(scrapeInput.value); });
+    });
+  }
+  function hotkeysAllowed(target){
+    if(!target){ return true; }
+    if(target.isContentEditable){ return false; }
+    const tag = target.tagName;
+    return !(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT');
+  }
+
+  document.addEventListener('keydown', e=>{
+    if(!hotkeysAllowed(e.target)){ return; }
+    const key = e.key?.toLowerCase();
+    if(!key){ return; }
+    if(key === '+' && !editor.open){
+      e.preventDefault();
+      openEditor(null);
+      return;
+    }
+    if(key === 'd'){
+      if(devToggle){ e.preventDefault(); devToggle.click(); }
+      return;
+    }
+    if(key === 'a'){
+      if(archiveToggle){ e.preventDefault(); archiveToggle.click(); }
+      return;
+    }
+  });
 
   exportBtn.onclick = () => {
     const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
@@ -547,6 +927,10 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
     if(devToggle) devToggle.textContent = 'Dev: ' + (state.settings.devMode? 'On':'Off');
     document.body.dataset.dev = state.settings.devMode ? 'on' : 'off';
   }
+  function updateArchiveToggleLabel(){
+    if(archiveToggle) archiveToggle.textContent = state.settings.showArchivedOnly ? 'Archived: On' : 'Archived: Off';
+  }
+  if(archiveToggle){ archiveToggle.addEventListener('click', ()=>{ state.settings.showArchivedOnly = !state.settings.showArchivedOnly; updateArchiveToggleLabel(); save(); render(); }); }
   if(devToggle){ devToggle.addEventListener('click', ()=>{ state.settings.devMode = !state.settings.devMode; updateDevToggleLabel(); save(); render(); }); }
   // Ensure clicking the checkbox itself does not bubble to the card click
   document.addEventListener('click', (e)=>{ if(e.target && e.target.classList && e.target.classList.contains('select-check')) { e.stopPropagation(); } }, true);
@@ -600,6 +984,8 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
       preview.src=url;
       preview.classList.remove('hidden');
       f_imgurl.value='';
+      selectedImageCandidate = -1;
+      updateImageOptionSelection();
     }
   });
   drop.addEventListener('paste', async (e)=>{
@@ -610,6 +996,8 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
       preview.src=url;
       preview.classList.remove('hidden');
       f_imgurl.value='';
+      selectedImageCandidate = -1;
+      updateImageOptionSelection();
     }
   });
   f_file.addEventListener('change', async (e)=>{
@@ -618,6 +1006,8 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
       preview.src=url;
       preview.classList.remove('hidden');
       f_imgurl.value='';
+      selectedImageCandidate = -1;
+      updateImageOptionSelection();
     }
   });
   f_imgurl.addEventListener('input', ()=>{
@@ -626,6 +1016,8 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
       preview.src = val;
       preview.classList.remove('hidden');
       f_file.value='';
+      selectedImageCandidate = -1;
+      updateImageOptionSelection();
     } else if(!f_file.files?.length && (!preview.src || !preview.src.startsWith('data:'))){
       preview.src='';
       preview.classList.add('hidden');
@@ -636,6 +1028,7 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
 
   document.getElementById('saveBtn').addEventListener('click', (e)=>{
     e.preventDefault();
+    const existing = currentEditId ? state.products.find(p=>p.id===currentEditId) : null;
     const base = {
       id: currentEditId || uid(),
       title: f_title.value.trim(),
@@ -644,7 +1037,8 @@ If Windows shows a security prompt when opening files directly inside the ZIP, i
       notes: f_notes.value.trim(),
       image: {},
       price: { amount: f_price.value, currency: (f_curr.value||'').toUpperCase() },
-      createdAt: currentEditId? (state.products.find(p=>p.id===currentEditId)?.createdAt || Date.now()) : Date.now()
+      archived: existing?.archived ?? false,
+      createdAt: existing?.createdAt || Date.now()
     };
   const imageUrl = f_imgurl.value.trim();
   if(preview.src && preview.src.startsWith('data:')){ base.image.dataURL = preview.src; }
