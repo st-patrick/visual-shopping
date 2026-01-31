@@ -36,17 +36,12 @@
   .searchbar input{all:unset;flex:1}
 
   .grid-wrap{padding:22px clamp(12px,4vw,28px)}
-  .grid{column-gap:var(--gap)}
-  /* Responsive column sizing: increases columns as width grows */
-  @media (min-width:320px){ .grid{columns: 1} }
-  @media (min-width:520px){ .grid{columns: 2} }
-  @media (min-width:820px){ .grid{columns: 3} }
-  @media (min-width:1100px){ .grid{columns: 4} }
-  @media (min-width:1400px){ .grid{columns: 5} }
+  .grid{display:flex; gap:var(--gap); align-items:flex-start}
+  .masonry-col{flex:1; display:flex; flex-direction:column; gap:var(--gap); min-width:0}
 
-  .card{display:inline-block; width:100%; margin:0 0 var(--gap); background:var(--card);
+  .card{display:block; width:100%; background:var(--card);
   border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow);
-  break-inside:avoid; position:relative; cursor:grab}
+  position:relative; cursor:grab}
   .card.no-drag{cursor:pointer}
   .card.dragging{opacity:.45; transform:scale(.98); cursor:grabbing}
   .card.drag-over-top::before, .card.drag-over-bottom::before{content:""; position:absolute; left:6px; right:6px; height:4px;
@@ -127,20 +122,55 @@
   .ctx-menu-item:hover{background:rgba(123,216,143,.1)}
   .ctx-menu-item.danger{color:#ffb3c0}
   .ctx-menu-item.danger:hover{background:rgba(255,179,192,.1)}
+
+  /* Gift mode styling */
+  .card.gift{border:2px solid #f472b6; box-shadow:0 0 12px rgba(244,114,182,.2)}
+  .card.gift::before{content:"🎁"; position:absolute; top:8px; left:8px; font-size:18px;
+    text-shadow:0 2px 4px rgba(0,0,0,.4); z-index:2}
+  .badge-gift{background:#2d1f2d; border-color:#4a2d4a; color:#f472b6}
+
+  /* Feed tabs */
+  .feed-tabs{display:flex; gap:4px; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:4px}
+  .feed-tab{padding:8px 16px; border-radius:10px; cursor:pointer; font-size:13px; font-weight:500;
+    color:var(--muted); transition:all .15s ease; border:none; background:transparent}
+  .feed-tab:hover{color:var(--fg); background:rgba(255,255,255,.03)}
+  .feed-tab.active{background:linear-gradient(180deg,#212835,#1a202c); color:var(--fg); box-shadow:0 2px 8px rgba(0,0,0,.2)}
+  .feed-tab.active.gift-tab{background:linear-gradient(180deg,#3d2040,#2d1830); color:#f472b6}
+  .feed-tab .tab-icon{margin-right:6px}
+  .feed-tab .tab-count{margin-left:6px; font-size:11px; opacity:.7}
+
+  /* Enhanced topbar */
+  .topbar{position:sticky;top:0;z-index:10;display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+          padding:14px clamp(12px,4vw,28px);background:linear-gradient(180deg,rgba(10,12,18,.98),rgba(10,12,18,.85));
+          border-bottom:1px solid var(--border);backdrop-filter:saturate(160%) blur(12px)}
+  .topbar-row{display:flex;gap:12px;align-items:center;width:100%}
+  .actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+
+  /* Sexier cards */
+  .card{transition:transform .15s ease, box-shadow .15s ease}
+  .card:hover{transform:translateY(-2px); box-shadow:0 16px 48px rgba(0,0,0,.35)}
+  .card img{transition:filter .2s ease}
+  .card:hover img{filter:brightness(1.05)}
 </style>
 </head>
 <body>
   <div class="topbar">
-    <div class="brand"><span class="dot"></span> Visual Shopping · MVP</div>
+    <div class="brand"><span class="dot"></span> Visual Shopping</div>
+    <div class="feed-tabs">
+      <button class="feed-tab active" id="feedPersonal" title="Your personal wishlist">
+        <span class="tab-icon">🛍️</span>Personal<span class="tab-count" id="countPersonal"></span>
+      </button>
+      <button class="feed-tab gift-tab" id="feedGifts" title="Gift ideas for others">
+        <span class="tab-icon">🎁</span>Gifts<span class="tab-count" id="countGifts"></span>
+      </button>
+    </div>
     <div class="searchbar" title="Search title/source/tags">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-      <input id="q" placeholder="Search… (t/title, s/source, #tags)" />
+      <input id="q" placeholder="Search…" />
     </div>
     <div class="actions">
   <button class="ctrl primary" id="addBtn" title="Add (+)">＋ Add</button>
-      <button class="ctrl" id="exportBtn" title="Export JSON">Export</button>
-      <button class="ctrl" id="importBtn" title="Import JSON">Import</button>
-      <button class="ctrl" id="shuffleBtn" title="Shuffle order">Shuffle</button>
+      <button class="ctrl" id="shuffleBtn" title="Shuffle order">🔀</button>
       <select id="sortSelect" class="ctrl-select" title="Sort products">
         <option value="manual">Sort: Manual</option>
         <option value="newest">Sort: Newest first</option>
@@ -149,10 +179,10 @@
         <option value="price-desc">Sort: Price high → low</option>
         <option value="title">Sort: Title A → Z</option>
       </select>
-  <button class="ctrl" id="devToggle" title="Toggle developer controls (D)">Dev: Off</button>
-  <button class="ctrl" id="archiveToggle" title="Show only archived items (A)">Archived: Off</button>
-      <button class="ctrl" id="selectBtn" title="Toggle select mode (multi-delete)">Select</button>
-      <button class="ctrl danger" id="delBtn" disabled>Delete</button>
+  <button class="ctrl" id="archiveToggle" title="Show archived (A)">📦</button>
+  <button class="ctrl" id="devToggle" title="Dev mode (D)">⚙️</button>
+      <button class="ctrl" id="selectBtn" title="Select mode">☑️</button>
+      <button class="ctrl danger" id="delBtn" disabled>🗑</button>
     </div>
   </div>
 
@@ -227,13 +257,15 @@
   grid.addEventListener('drop', handleGridDrop);
   const q = document.getElementById('q');
   const addBtn = document.getElementById('addBtn');const delBtn = document.getElementById('delBtn');
-  const exportBtn = document.getElementById('exportBtn');
   const devToggle = document.getElementById('devToggle');
   const archiveToggle = document.getElementById('archiveToggle');
   const shuffleBtn = document.getElementById('shuffleBtn');
   const sortSelect = document.getElementById('sortSelect');
-  const importBtn = document.getElementById('importBtn');
   const importFile = document.getElementById('importFile');
+  const feedPersonal = document.getElementById('feedPersonal');
+  const feedGifts = document.getElementById('feedGifts');
+  const countPersonal = document.getElementById('countPersonal');
+  const countGifts = document.getElementById('countGifts');
 
   const editor = document.getElementById('editor');
   const f_title = document.getElementById('f_title');
@@ -257,6 +289,7 @@
   reconcileOrder();
 
   let selectMode = false;
+  let giftMode = false;  // false = personal feed, true = gifts feed
   const selected = new Set();
   let currentEditId = null;
   const dragState = { id: null, hoverEl: null };
@@ -408,14 +441,36 @@
     });
   }
 
+  // Get responsive column count based on viewport width
+  function getColumnCount(){
+    const w = window.innerWidth;
+    if(w >= 1400) return 5;
+    if(w >= 1100) return 4;
+    if(w >= 820) return 3;
+    if(w >= 520) return 2;
+    return 1;
+  }
+
   function render(){
     updateDevToggleLabel();
     updateArchiveToggleLabel();
     updateSortControls();
+    updateFeedTabs();
     dragState.hoverEl = null;
     dragState.id = null;
     const term = (q.value||'').trim().toLowerCase();
     grid.innerHTML = '';
+    
+    // Create masonry columns
+    const colCount = getColumnCount();
+    const columns = [];
+    for(let i = 0; i < colCount; i++){
+      const col = document.createElement('div');
+      col.className = 'masonry-col';
+      columns.push(col);
+      grid.appendChild(col);
+    }
+    
     const sortMode = state.settings.sortMode || 'manual';
     const items = state.products.slice();
     if(sortMode === 'manual'){
@@ -445,6 +500,10 @@
     const dragEnabled = !selectMode && term === '' && sortMode === 'manual';
     const showArchivedOnly = Boolean(state.settings.showArchivedOnly);
     for(const it of items){
+      // Filter by gift mode: giftMode=true shows only gifts, giftMode=false shows only non-gifts
+      const isGift = Boolean(it.gift);
+      if(giftMode !== isGift){ continue; }
+      // Then filter by archived
       if(showArchivedOnly){
         if(!it.archived){ continue; }
       } else if(it.archived){
@@ -461,13 +520,15 @@
       el.dataset.id = it.id;
   if(it.archived){ el.classList.add('archived'); }
   if(it.have){ el.classList.add('have'); }
+  if(it.gift){ el.classList.add('gift'); }
       const imgSrc = it.image?.dataURL || it.image?.url || '';
       const img = `<img loading="lazy" alt="${escapeHtml(it.title||'product')}" src="${escapeAttr(imgSrc)}">`;
       const src = it.link ? `<a href="${escapeAttr(it.link)}" target="_blank" rel="noopener noreferrer" class="src">${escapeHtml(domainOf(it.link))}</a>` : '<span class="src">—</span>';
       const price = it.price?.amount? `<span class="price">${escapeHtml(fmtPrice(it.price.amount))} ${escapeHtml(it.price.currency||'')}</span>` : '<span class="price"></span>';
       const tagsRaw = (it.tags||[]).slice(0,4).map(t=>`<span class="badge">#${escapeHtml(t)}</span>`).join(' ');
       const archivedBadge = it.archived ? '<span class="badge badge-archived">Archived</span>' : '';
-      const tags = [archivedBadge, tagsRaw].filter(Boolean).join(' ');
+      const giftBadge = it.gift ? '<span class="badge badge-gift">🎁 Gift</span>' : '';
+      const tags = [archivedBadge, giftBadge, tagsRaw].filter(Boolean).join(' ');
       const archiveLabel = it.archived ? 'Unarchive' : 'Archive';
       const archiveTitle = it.archived ? 'Move back to active list' : 'Move to archive';
       el.innerHTML = `
@@ -518,8 +579,67 @@
         el.draggable = false;
         el.classList.add('no-drag');
       }
-      grid.appendChild(el);
+      // Initially append to first column (will redistribute after measuring)
+      columns[0].appendChild(el);
     }
+    
+    // After all cards are in DOM, wait for images then redistribute
+    const images = grid.querySelectorAll('img');
+    let loaded = 0;
+    const total = images.length;
+    const doRedistribute = ()=>{
+      redistributeCards(columns);
+    };
+    const checkLoaded = ()=>{
+      loaded++;
+      if(loaded >= total){
+        // Small delay to ensure layout is calculated
+        requestAnimationFrame(doRedistribute);
+      }
+    };
+    if(total === 0){
+      requestAnimationFrame(doRedistribute);
+    } else {
+      images.forEach(img => {
+        if(img.complete){ checkLoaded(); }
+        else { 
+          img.addEventListener('load', checkLoaded, {once:true});
+          img.addEventListener('error', checkLoaded, {once:true});
+        }
+      });
+    }
+  }
+  
+  // Redistribute cards across columns using greedy shortest-column algorithm
+  // Cards are already in sorted order in the DOM
+  function redistributeCards(columns){
+    if(!columns || columns.length < 2) return;
+    
+    // Collect all cards with their measured heights (they're in sorted order in col 0)
+    const cardData = [];
+    columns.forEach(col => {
+      Array.from(col.children).forEach(card => {
+        cardData.push({ el: card, height: card.offsetHeight });
+      });
+    });
+    if(cardData.length === 0) return;
+    
+    // Clear all columns
+    columns.forEach(col => col.innerHTML = '');
+    
+    // Redistribute: for each card (in sorted order), put in shortest column
+    const colHeights = columns.map(()=>0);
+    const gap = 16; // matches CSS --gap
+    
+    cardData.forEach(({el, height}) => {
+      // Find shortest column
+      let shortestIdx = 0;
+      for(let i = 1; i < colHeights.length; i++){
+        if(colHeights[i] < colHeights[shortestIdx]) shortestIdx = i;
+      }
+      columns[shortestIdx].appendChild(el);
+      colHeights[shortestIdx] += height + gap;
+    });
   }
 
   function updateDeleteButton(){ delBtn.disabled = selected.size===0; }
@@ -540,6 +660,14 @@
     render();
   }
 
+  function toggleGift(id){
+    const product = state.products.find(p=>p.id===id);
+    if(!product){ return; }
+    product.gift = !product.gift;
+    save();
+    render();
+  }
+
   let activeContextMenu = null;
   function showContextMenu(x, y, productId){
     hideContextMenu();
@@ -549,6 +677,7 @@
     menu.className = 'ctx-menu';
     menu.innerHTML = `
       <div class="ctx-menu-item" data-action="have">${product.have ? '✗ Unmark as Have' : '✓ Mark as Have'}</div>
+      <div class="ctx-menu-item" data-action="gift">${product.gift ? '🛒 Move to Personal' : '🎁 Move to Gifts'}</div>
       <div class="ctx-menu-item" data-action="edit">✎ Edit</div>
       <div class="ctx-menu-item" data-action="archive">${product.archived ? '↩ Unarchive' : '📦 Archive'}</div>
       <div class="ctx-menu-item danger" data-action="delete">🗑 Delete</div>
@@ -566,6 +695,7 @@
       if(!action){ return; }
       hideContextMenu();
       if(action === 'have'){ toggleHave(productId); }
+      else if(action === 'gift'){ toggleGift(productId); }
       else if(action === 'edit'){ openEditor(productId); }
       else if(action === 'archive'){ toggleArchive(productId); }
       else if(action === 'delete'){
@@ -1011,7 +1141,7 @@
 
   function openEditor(id){
     currentEditId = id || null;
-    const it = id ? state.products.find(p=>p.id===id) : { id: uid(), title:'', link:'', tags:[], notes:'', image:{}, price:{amount:'',currency:'EUR'}, createdAt:Date.now(), archived:false };
+    const it = id ? state.products.find(p=>p.id===id) : { id: uid(), title:'', link:'', tags:[], notes:'', image:{}, price:{amount:'',currency:'EUR'}, createdAt:Date.now(), archived:false, gift: giftMode };
     if(scrapeInput){ scrapeInput.value = it?.link || ''; }
     setScrapeStatus('');
     resetImagePicker();
@@ -1089,10 +1219,13 @@
     }
   });
 
-  exportBtn.onclick = () => {
+  // Export/Import handlers (buttons may not exist in minimal UI)
+  const exportBtn = document.getElementById('exportBtn');
+  const importBtn = document.getElementById('importBtn');
+  if(exportBtn){ exportBtn.onclick = () => {
     const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
     downloadBlob(blob, filename('visual-shop', 'json'));
-  };
+  }; }
 
   if(importBtn){ importBtn.onclick = () => { importFile.click(); }; }
   importFile.onchange = async (e)=>{
@@ -1134,16 +1267,27 @@
   q.addEventListener('input', ()=>render());
 
   function updateDevToggleLabel(){
-    if(devToggle) devToggle.textContent = 'Dev: ' + (state.settings.devMode? 'On':'Off');
+    if(devToggle) devToggle.title = 'Dev mode: ' + (state.settings.devMode? 'On':'Off');
     document.body.dataset.dev = state.settings.devMode ? 'on' : 'off';
   }
   function updateArchiveToggleLabel(){
-    if(archiveToggle) archiveToggle.textContent = state.settings.showArchivedOnly ? 'Archived: On' : 'Archived: Off';
+    if(archiveToggle) archiveToggle.title = state.settings.showArchivedOnly ? 'Showing archived' : 'Show archived';
   }
   function updateSortControls(){
     if(sortSelect){ sortSelect.value = state.settings.sortMode || 'manual'; }
     if(shuffleBtn){ shuffleBtn.disabled = state.settings.sortMode !== 'manual' || state.products.length < 2; }
   }
+  function updateFeedTabs(){
+    if(feedPersonal){ feedPersonal.classList.toggle('active', !giftMode); }
+    if(feedGifts){ feedGifts.classList.toggle('active', giftMode); }
+    // Update counts
+    const personalCount = state.products.filter(p=>!p.gift && !p.archived).length;
+    const giftCount = state.products.filter(p=>p.gift && !p.archived).length;
+    if(countPersonal){ countPersonal.textContent = personalCount > 0 ? personalCount : ''; }
+    if(countGifts){ countGifts.textContent = giftCount > 0 ? giftCount : ''; }
+  }
+  if(feedPersonal){ feedPersonal.addEventListener('click', ()=>{ giftMode = false; render(); }); }
+  if(feedGifts){ feedGifts.addEventListener('click', ()=>{ giftMode = true; render(); }); }
   if(archiveToggle){ archiveToggle.addEventListener('click', ()=>{ state.settings.showArchivedOnly = !state.settings.showArchivedOnly; updateArchiveToggleLabel(); save(); render(); }); }
   if(devToggle){ devToggle.addEventListener('click', ()=>{ state.settings.devMode = !state.settings.devMode; updateDevToggleLabel(); save(); render(); }); }
   // Ensure clicking the checkbox itself does not bubble to the card click
@@ -1195,6 +1339,8 @@
       image: {},
       price: { amount: f_price.value, currency: (f_curr.value||'').toUpperCase() },
       archived: existing?.archived ?? false,
+      gift: existing?.gift ?? giftMode,
+      have: existing?.have ?? false,
       createdAt: existing?.createdAt || Date.now()
     };
   const imageUrl = f_imgurl.value.trim();
@@ -1230,6 +1376,16 @@
 
   function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
   function escapeAttr(s){ return (s||'').replace(/["\n\r]/g, c=>({"\"":"&quot;","\n":" ","\r":" "}[c])); }
+
+  // Resize handler to re-render when column count changes
+  let lastColCount = getColumnCount();
+  window.addEventListener('resize', ()=>{
+    const newColCount = getColumnCount();
+    if(newColCount !== lastColCount){
+      lastColCount = newColCount;
+      render();
+    }
+  });
 
   // Boot
   render();
